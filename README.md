@@ -107,6 +107,35 @@ Before running this project, ensure you have the following installed on your mac
 
 ---
 
+### Option 3: Deploy to Vercel (Cloud Production)
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fpuravgupta7%2FDrone)
+
+This repository is pre-configured for zero-config Vercel deployment using `@vercel/python` serverless functions and Vercel edge CDN for static assets.
+
+#### Method A: Via Vercel Web Dashboard (Recommended)
+1. Push your code to your GitHub repository (e.g. `puravgupta7/Drone`).
+2. Visit [vercel.com/new](https://vercel.com/new) and log in.
+3. Import the `Drone` repository.
+4. Leave **Framework Preset** as **Other** (Vercel automatically detects `vercel.json` and `api/index.py`).
+5. Click **Deploy**. Your live tactical C2 digital twin will be available in ~60 seconds at `https://<your-project>.vercel.app`.
+
+#### Method B: Via Vercel CLI
+```bash
+# Preview deployment
+npx vercel
+
+# Production deployment
+npx vercel --prod
+```
+
+#### How Vercel Deployment Operates:
+- **Serverless REST & Telemetry**: FastAPI endpoints (`/api/health`, `/api/telemetry/snapshot`, `/api/command`, `/api/simulation/monte-carlo`, `/api/qualification/*`) run as serverless Python functions on AWS Lambda.
+- **Dual-Mode Telemetry Streaming**: Because Vercel serverless functions do not support long-lived persistent WebSocket connections, the frontend (`web/js/app.js`) automatically activates high-frequency HTTP telemetry streaming with smooth 3D interpolation and REST command dispatch.
+- **Optional Hybrid Mode (Full 50 Hz WebSockets)**: If you prefer persistent 50 Hz WebSockets in production, host the Python backend on [Render](https://render.com), [Railway](https://railway.app), or a VPS, and append the URL query parameter `?backend=https://your-backend.domain` or set `window.HA_ADS_CONFIG = { backendUrl: 'https://your-backend.domain' }`.
+
+---
+
 ## 4. Running Verification Tests & Monte Carlo Benchmarks
 
 ### Automated Unit Test Suite (8 Test Modules)

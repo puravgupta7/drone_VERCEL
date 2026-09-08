@@ -10,7 +10,8 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+import numpy as np
 
 # Ensure parent directory is in sys.path
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -65,9 +66,57 @@ class BOMEvaluationRequest(BaseModel):
     min_temp_c: float = -35.0
 
 
+class CommandRequest(BaseModel):
+    action: str
+    value: Optional[Any] = None
+    preset: Optional[str] = None
+
+
+def apply_simulation_command(action: str, value: Any = None, preset: Optional[str] = None) -> Dict[str, Any]:
+    """Applies interactive C2 commands to the digital-twin simulation state."""
+    if action == "toggle_adrc":
+        sim.adrc_active = bool(value if value is not None else True)
+    elif action == "toggle_heaters":
+        sim.heaters_active = bool(value if value is not None else True)
+    elif action == "toggle_paschen":
+        sim.paschen_limiter_active = bool(value if value is not None else True)
+    elif action == "toggle_jamming":
+        sim.jamming_engaged = bool(value if value is not None else True)
+    elif action == "set_altitude":
+        sim.altitude_m = float(value if value is not None else 5400.0)
+        sim.reinitialize()
+    elif action == "set_preset":
+        target_preset = preset or str(value or "siachen")
+        if target_preset == "sea_level":
+            sim.altitude_m = 0.0
+            sim.delta_t_c = 0.0
+            sim.wind_speed_ms = 4.0
+        elif target_preset == "ladakh":
+            sim.altitude_m = 3500.0
+            sim.delta_t_c = -10.0
+            sim.wind_speed_ms = 12.0
+        elif target_preset == "siachen":
+            sim.altitude_m = 5400.0
+            sim.delta_t_c = -20.0
+            sim.wind_speed_ms = 18.0
+        elif target_preset == "extreme_ridge":
+            sim.altitude_m = 6500.0
+            sim.delta_t_c = -30.0
+            sim.wind_speed_ms = 28.0
+        sim.reinitialize()
+    return {"status": "SUCCESS", "action": action, "active_adrc": sim.adrc_active, "altitude_m": sim.altitude_m}
+
+
 @app.get("/api/health")
 async def get_health():
     return {"status": "ONLINE", "system": "High-Altitude Anti-Drone System", "version": "2.0.0"}
+
+
+@app.post("/api/command")
+async def execute_command(cmd: CommandRequest):
+    """Executes a C2 command over REST for environments where WebSockets are unsupported (e.g. Vercel)."""
+    result = apply_simulation_command(cmd.action, cmd.value, cmd.preset)
+    return JSONResponse(content=result)
 
 
 @app.get("/api/telemetry/snapshot")
@@ -173,36 +222,8 @@ async def websocket_telemetry(websocket: WebSocket):
                 msg = await asyncio.wait_for(websocket.receive_text(), timeout=0.02)
                 data = json.loads(msg)
                 action = data.get("action")
-                if action == "toggle_adrc":
-                    sim.adrc_active = bool(data.get("value", True))
-                elif action == "toggle_heaters":
-                    sim.heaters_active = bool(data.get("value", True))
-                elif action == "toggle_paschen":
-                    sim.paschen_limiter_active = bool(data.get("value", True))
-                elif action == "toggle_jamming":
-                    sim.jamming_engaged = bool(data.get("value", True))
-                elif action == "set_altitude":
-                    sim.altitude_m = float(data.get("value", 5400.0))
-                    sim.reinitialize()
-                elif action == "set_preset":
-                    preset = data.get("preset", "siachen")
-                    if preset == "sea_level":
-                        sim.altitude_m = 0.0
-                        sim.delta_t_c = 0.0
-                        sim.wind_speed_ms = 4.0
-                    elif preset == "ladakh":
-                        sim.altitude_m = 3500.0
-                        sim.delta_t_c = -10.0
-                        sim.wind_speed_ms = 12.0
-                    elif preset == "siachen":
-                        sim.altitude_m = 5400.0
-                        sim.delta_t_c = -20.0
-                        sim.wind_speed_ms = 18.0
-                    elif preset == "extreme_ridge":
-                        sim.altitude_m = 6500.0
-                        sim.delta_t_c = -30.0
-                        sim.wind_speed_ms = 28.0
-                    sim.reinitialize()
+                if action:
+                    apply_simulation_command(action, data.get("value"), data.get("preset"))
             except asyncio.TimeoutError:
                 pass
                 

@@ -1,0 +1,17 @@
+# Vercel Deployment Ignore Rules
+# Exclude test files, local caches, and scripts to keep the deployment payload small
+.git
+.gitignore
+.pytest_cache
+tests
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.bat
+*.sh
+.env
+.venv
+venv
+ENV
+run_system.py

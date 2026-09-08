@@ -104,28 +104,118 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.missionClock.textContent = `${hrs}:${mins}:${secs}`;
     }, 1000);
 
-    // 4. WebSocket Streaming Setup
+    // 4. Backend Resolution & Dual-Mode Telemetry Streaming (WebSocket + Vercel HTTP Polling)
+    const urlParams = new URLSearchParams(window.location.search);
+    const customBackend = urlParams.get('backend') || urlParams.get('api') || (window.HA_ADS_CONFIG && window.HA_ADS_CONFIG.backendUrl) || '';
+
+    function getApiUrl(endpoint) {
+        if (customBackend) {
+            const base = customBackend.replace(/\/+$/, '');
+            return `${base}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+        }
+        return endpoint;
+    }
+
+    function getWsUrl() {
+        if (customBackend) {
+            const wsProto = customBackend.startsWith('https:') ? 'wss:' : 'ws:';
+            const host = customBackend.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+            return `${wsProto}//${host}/ws/telemetry`;
+        }
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}/ws/telemetry`;
+    }
+
     let socket = null;
+    let httpPollingTimer = null;
+    let isPolling = false;
+    let wsAttempts = 0;
+    const MAX_WS_FAILURES_BEFORE_FALLBACK = 1;
+
+    function startHttpPolling() {
+        if (isPolling) return;
+        isPolling = true;
+        
+        elements.connBadge.textContent = 'HTTP STREAM (VERCEL)';
+        elements.connBadge.className = 'status-pill status-ready';
+
+        let pollingInFlight = false;
+        
+        async function pollTelemetry() {
+            if (!isPolling) return;
+            if (pollingInFlight) return;
+            pollingInFlight = true;
+            try {
+                const res = await fetch(getApiUrl('/api/telemetry/snapshot'), { cache: 'no-store' });
+                if (res.ok) {
+                    const telemetry = await res.json();
+                    updateDashboard(telemetry);
+                    elements.connBadge.textContent = 'HTTP STREAM (VERCEL)';
+                    elements.connBadge.className = 'status-pill status-ready';
+                }
+            } catch (err) {
+                // Keep trying smoothly in the background
+                elements.connBadge.textContent = 'HTTP RETRYING...';
+                elements.connBadge.className = 'status-pill';
+            } finally {
+                pollingInFlight = false;
+            }
+        }
+
+        // Poll at ~16-20 Hz for responsive real-time telemetry on Vercel
+        httpPollingTimer = setInterval(pollTelemetry, 60);
+        pollTelemetry();
+    }
+
+    function stopHttpPolling() {
+        isPolling = false;
+        if (httpPollingTimer) {
+            clearInterval(httpPollingTimer);
+            httpPollingTimer = null;
+        }
+    }
 
     function connectWebSocket() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/telemetry`;
+        const wsUrl = getWsUrl();
         
-        socket = new WebSocket(wsUrl);
+        try {
+            socket = new WebSocket(wsUrl);
+        } catch (e) {
+            wsAttempts++;
+            startHttpPolling();
+            return;
+        }
+
+        let connectionTimeout = setTimeout(() => {
+            if (socket && socket.readyState !== WebSocket.OPEN) {
+                try { socket.close(); } catch (_) {}
+                startHttpPolling();
+            }
+        }, 2000);
 
         socket.onopen = () => {
+            clearTimeout(connectionTimeout);
+            stopHttpPolling();
+            wsAttempts = 0;
             elements.connBadge.textContent = '50Hz STREAM';
             elements.connBadge.className = 'status-pill status-ready';
         };
 
         socket.onclose = () => {
-            elements.connBadge.textContent = 'RECONNECTING...';
-            elements.connBadge.className = 'status-pill';
-            setTimeout(connectWebSocket, 1500);
+            clearTimeout(connectionTimeout);
+            wsAttempts++;
+            if (wsAttempts >= MAX_WS_FAILURES_BEFORE_FALLBACK) {
+                startHttpPolling();
+            } else {
+                elements.connBadge.textContent = 'CONNECTING...';
+                elements.connBadge.className = 'status-pill';
+                setTimeout(connectWebSocket, 1500);
+            }
         };
 
         socket.onerror = () => {
-            socket.close();
+            clearTimeout(connectionTimeout);
+            try { socket.close(); } catch (_) {}
         };
 
         socket.onmessage = (event) => {
@@ -229,9 +319,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 6. Interactive Controls & Toggle Switches
-    function sendCommand(action, value) {
+    async function sendCommand(action, value = null, preset = null) {
+        const payload = { action, value };
+        if (preset) payload.preset = preset;
+
         if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ action, value }));
+            socket.send(JSON.stringify(payload));
+        } else {
+            // REST Fallback for serverless Vercel execution
+            try {
+                await fetch(getApiUrl('/api/command'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } catch (err) {
+                console.warn('REST command dispatch failed:', err);
+            }
         }
     }
 
@@ -257,9 +361,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             const preset = btn.dataset.preset;
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({ action: 'set_preset', preset }));
-            }
+            sendCommand('set_preset', null, preset);
         });
     });
 
@@ -277,7 +379,7 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.bomModal.classList.add('active');
         // Fetch components
         try {
-            const res = await fetch('/api/qualification/components');
+            const res = await fetch(getApiUrl('/api/qualification/components'));
             const data = await res.json();
             renderQualTable(data.components);
         } catch (err) {
@@ -294,7 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.mcVerdict.textContent = 'Executing 50-run Monte Carlo simulation across random wind gusts & frozen cable torques...';
         
         try {
-            const res = await fetch('/api/simulation/monte-carlo?runs=50');
+            const res = await fetch(getApiUrl('/api/simulation/monte-carlo?runs=50'));
             const data = await res.json();
             
             elements.mcAdrcMean.textContent = `${data.adrc.mean_jitter_urad} µrad`;
@@ -335,7 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elements.btnEvaluateBOM.addEventListener('click', async () => {
         try {
-            const res = await fetch('/api/qualification/evaluate-bom', {
+            const res = await fetch(getApiUrl('/api/qualification/evaluate-bom'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
