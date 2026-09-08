@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HA-ADS // High Altitude Anti-Drone System - Tactical C2 Digital Twin</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Three.js and Chart.js from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="tactical-body">
+    <!-- Top Navigation Command Bar -->
+    <header class="top-nav">
+        <div class="brand-section">
+            <div class="radar-pulse-icon"></div>
+            <div class="brand-titles">
+                <div class="brand-main">HA-ADS // DEFENSE SYSTEMS</div>
+                <div class="brand-sub">HIGH-ALTITUDE ANTI-DRONE SYSTEM & DIGITAL TWIN C2 WORKSTATION</div>
+            </div>
+        </div>
+
+        <div class="env-presets-bar">
+            <span class="preset-label">DEPLOYMENT ALTITUDE:</span>
+            <button class="preset-btn" data-preset="sea_level">SEA LEVEL (0m)</button>
+            <button class="preset-btn" data-preset="ladakh">LEH/LADAKH (3,500m)</button>
+            <button class="preset-btn active" data-preset="siachen">SIACHEN GLACIER (5,400m)</button>
+            <button class="preset-btn danger" data-preset="extreme_ridge">EXTREME RIDGE (6,500m)</button>
+        </div>
+
+        <div class="system-status-pills">
+            <div class="status-pill status-ready" id="srlBadge">MISSION READY</div>
+            <div class="status-pill" id="connBadge">50Hz STREAM</div>
+            <div class="status-pill clock-pill" id="missionClock">00:00:00</div>
+        </div>
+    </header>
+
+    <!-- Main Tactical Workspace -->
+    <main class="main-dashboard">
+        <!-- LEFT COLUMN: EO/IR Thermal Camera & Sensor Tracking -->
+        <section class="panel-column left-column">
+            <!-- MWIR Thermal Reticle Feed -->
+            <div class="tactical-card thermal-card">
+                <div class="card-header">
+                    <div class="header-title">
+                        <span class="dot-indicator red-dot"></span>
+                        MWIR THERMAL RETICLE (3–5 µm)
+                    </div>
+                    <span class="badge" id="thermalAthermalBadge">ATHERMALIZED</span>
+                </div>
+                <div class="thermal-viewport-container">
+                    <canvas id="thermalCanvas" width="340" height="230"></canvas>
+                    <div class="reticle-telemetry-overlay">
+                        <div>TRK JITTER: <span class="highlight" id="hudJitter">18.4 µrad</span></div>
+                        <div>CONTRAST: <span class="highlight" id="hudContrast">+48.2 K</span></div>
+                        <div>WINDOW FROST: <span class="highlight" id="hudFrost">0.0%</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fused 3D Track Data -->
+            <div class="tactical-card track-card">
+                <div class="card-header">
+                    <div class="header-title">
+                        <span class="dot-indicator green-dot"></span>
+                        9-STATE 3D UKF SENSOR FUSION
+                    </div>
+                    <span class="badge track-locked-badge" id="trackLockBadge">LOCKED</span>
+                </div>
+                <div class="telemetry-grid">
+                    <div class="telemetry-item">
+                        <span class="label">TARGET RANGE</span>
+                        <span class="val large" id="trackRange">2,320 m</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">EST. VELOCITY</span>
+                        <span class="val large" id="trackSpeed">27.4 m/s</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">TARGET AZ / EL</span>
+                        <span class="val" id="trackAzEl">-142.1° / +11.4°</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">ROTOR SPEED (THIN AIR)</span>
+                        <span class="val warning" id="trackRpm">7,620 RPM</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">RADAR MICRO-DOPPLER</span>
+                        <span class="val" id="trackMicroDoppler">1,420 Hz</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">TRACK CONFIDENCE</span>
+                        <span class="val success" id="trackQuality">98.5%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Electronic Attack & Fire Control -->
+            <div class="tactical-card neutral-card">
+                <div class="card-header">
+                    <div class="header-title">
+                        <span class="dot-indicator amber-dot"></span>
+                        INTERDICTION & NEUTRALIZATION
+                    </div>
+                    <span class="badge active-badge" id="jamStatusBadge">JAMMING ACTIVE</span>
+                </div>
+                <div class="interdiction-metrics">
+                    <div class="metric-row">
+                        <span>RF JAMMER EIRP:</span>
+                        <span class="val highlight" id="rfEirp">+64.8 dBm</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>J/S RATIO (LINK SEVER):</span>
+                        <span class="val success" id="rfJsRatio">+22.4 dB (SEVERED)</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>PASCHEN SPARK MARGIN:</span>
+                        <span class="val" id="paschenMargin">2.45x (SAFE)</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>KINETIC/LASER LEAD POINT:</span>
+                        <span class="val" id="fireLeadPoint">[ -1780, 1340, 428 ] m</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>KILL PROBABILITY:</span>
+                        <span class="val large success" id="killProb">94.0%</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CENTER COLUMN: 3D Tactical Battlefield View (Three.js) -->
+        <section class="panel-column center-column">
+            <div class="tactical-card viewport-card">
+                <div class="card-header scene-header">
+                    <div class="header-title">
+                        <span class="dot-indicator cyan-dot"></span>
+                        3D TACTICAL BATTLEFIELD DIGITAL TWIN (HIMALAYAN FRONTIER)
+                    </div>
+                    <div class="camera-controls-group">
+                        <button class="cam-btn active" data-cam="free">ORBIT</button>
+                        <button class="cam-btn" data-cam="turret">TURRET POV</button>
+                        <button class="cam-btn" data-cam="drone">DRONE CAM</button>
+                    </div>
+                </div>
+                <div class="three-viewport-container" id="threeViewport">
+                    <!-- Overlay HUD Compass & Horizon -->
+                    <div class="three-hud-overlay">
+                        <div class="hud-top">
+                            <span id="sceneAltTag">ALTITUDE: 5,400 m (SIACHEN)</span>
+                            <span id="sceneWindTag">WIND: 18.2 m/s @ 35° GALE</span>
+                            <span id="sceneTempTag">AMBIENT: -35.2°C</span>
+                        </div>
+                        <div class="hud-center-cross"></div>
+                        <div class="hud-bottom">
+                            <span id="gimbalAnglesTag">TURRET AZ: -142.1° | EL: +11.4°</span>
+                            <span id="activeControllerTag" class="active-adrc-tag">STABILIZATION: ADRC (ACTIVE)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Mission Controls -->
+            <div class="mission-controls-bar">
+                <div class="control-group">
+                    <label class="switch-container">
+                        <input type="checkbox" id="toggleAdrc" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <div class="control-label">
+                        <strong>ADRC DISTURBANCE OBSERVER</strong>
+                        <small>Rejects Cable Stiffness & Wind Gusts</small>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="switch-container">
+                        <input type="checkbox" id="toggleHeaters" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <div class="control-label">
+                        <strong>THERMAL BLANKETS & DEFROST</strong>
+                        <small>Heats Bearings, Battery & Optics</small>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="switch-container">
+                        <input type="checkbox" id="togglePaschen" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <div class="control-label">
+                        <strong>PASCHEN VOLTAGE LIMITER</strong>
+                        <small>Prevents Thin-Air RF Arcing</small>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="switch-container">
+                        <input type="checkbox" id="toggleJammer" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <div class="control-label">
+                        <strong>RF/GNSS JAMMER</strong>
+                        <small>Electronic Attack On Ingress Link</small>
+                    </div>
+                </div>
+
+                <div class="action-buttons-group">
+                    <button class="action-btn" id="btnOpenMonteCarlo">RUN MONTE CARLO</button>
+                    <button class="action-btn primary" id="btnOpenBOM">MIL-STD-810H QUALIFICATION</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- RIGHT COLUMN: Engineering Telemetry & Diagnostics -->
+        <section class="panel-column right-column">
+            <!-- Micro-Radian Jitter Comparison Chart -->
+            <div class="tactical-card chart-card">
+                <div class="card-header">
+                    <div class="header-title">
+                        <span class="dot-indicator green-dot"></span>
+                        POINTING JITTER: ADRC VS STANDARD PID (µrad)
+                    </div>
+                    <span class="spec-badge">&le; 50 µrad SPEC</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="jitterChart"></canvas>
+                </div>
+                <div class="chart-summary-footer">
+                    <div>ADRC JITTER: <span class="val success" id="summaryAdrcJitter">18.4 µrad</span></div>
+                    <div>LEGACY PID: <span class="val danger" id="summaryPidJitter">385.2 µrad</span></div>
+                </div>
+            </div>
+
+            <!-- 4-Node Closed-Loop Thermal Subsystem -->
+            <div class="tactical-card thermal-node-card">
+                <div class="card-header">
+                    <div class="header-title">
+                        <span class="dot-indicator amber-dot"></span>
+                        CLOSED-LOOP THERMAL STATE (°C)
+                    </div>
+                    <span class="badge" id="coolingDerateBadge">COOLING DERATED 38%</span>
+                </div>
+                <div class="node-thermal-bars">
+                    <div class="thermal-bar-item">
+                        <div class="bar-label-row">
+                            <span>GaN RF POWER AMPLIFIER</span>
+                            <span class="val" id="tempRfAmp">38.4°C</span>
+                        </div>
+                        <div class="progress-track"><div class="progress-fill fill-normal" id="barRfAmp" style="width: 55%;"></div></div>
+                    </div>
+                    <div class="thermal-bar-item">
+                        <div class="bar-label-row">
+                            <span>GIMBAL BEARING HUB (HEATED)</span>
+                            <span class="val" id="tempBearings">5.2°C</span>
+                        </div>
+                        <div class="progress-track"><div class="progress-fill fill-normal" id="barBearings" style="width: 45%;"></div></div>
+                    </div>
+                    <div class="thermal-bar-item">
+                        <div class="bar-label-row">
+                            <span>LiFePO4 BATTERY (PCM JACKET)</span>
+                            <span class="val" id="tempBattery">21.8°C</span>
+                        </div>
+                        <div class="progress-track"><div class="progress-fill fill-normal" id="barBattery" style="width: 50%;"></div></div>
+                    </div>
+                    <div class="thermal-bar-item">
+                        <div class="bar-label-row">
+                            <span>OPTICS WINDOW (ITO DEFROST)</span>
+                            <span class="val" id="tempOptics">8.1°C</span>
+                        </div>
+                        <div class="progress-track"><div class="progress-fill fill-normal" id="barOptics" style="width: 42%;"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cryogenic Cable Restoring Torque Hysteresis -->
+            <div class="tactical-card cable-card">
+                <div class="card-header">
+                    <div class="header-title">
+                        <span class="dot-indicator blue-dot"></span>
+                        CABLE RIGIDITY & HYSTERESIS
+                    </div>
+                    <span class="badge" id="cableMaterialBadge">MIL-SPEC PTFE</span>
+                </div>
+                <div class="chart-container cable-chart-box">
+                    <canvas id="cableChart"></canvas>
+                </div>
+                <div class="cable-metrics-row">
+                    <div>RESTORE TORQUE: <span class="val" id="cableTorqueVal">1.42 N·m</span></div>
+                    <div>DIST. OBSERVED: <span class="val highlight" id="observedDistVal">1.44 N·m</span></div>
+                </div>
+            </div>
+
+            <!-- Health Prognostics & Built-In-Test (BIT) -->
+            <div class="tactical-card bit-card">
+                <div class="card-header">
+                    <div class="header-title">
+                        <span class="dot-indicator green-dot"></span>
+                        BUILT-IN-TEST (BIT) & DIAGNOSTIC ALERTS
+                    </div>
+                    <span class="badge" id="healthPctBadge">HEALTH 98%</span>
+                </div>
+                <div class="alerts-scrollbox" id="alertsBox">
+                    <div class="alert-item alert-info">
+                        <strong>[SYSTEM_INIT]</strong> High-Altitude Stabilization and Active Disturbance Rejection online.
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- MODAL: MIL-STD-810H Component Qualification Database & BOM Evaluator -->
+    <div class="modal-overlay" id="bomModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">DEFENSE COMPONENT SELECTION & MIL-STD-810H QUALIFICATION MATRIX</div>
+                <button class="modal-close-btn" id="closeBomModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-desc">
+                    Comprehensive aerospace qualification analysis comparing Commercial-Off-The-Shelf (COTS) components
+                    against High-Altitude Ruggedized components across 8 critical subsystems. Evaluates compliance against
+                    <strong>MIL-STD-810H Method 500.6 (Low Pressure)</strong>, <strong>Method 502.7 (Low Temp -46°C)</strong>,
+                    <strong>Method 510.7 (Dust/Snow)</strong>, and <strong>MIL-STD-461G (EMI/EMC)</strong>.
+                </p>
+                <div class="table-responsive">
+                    <table class="qual-table">
+                        <thead>
+                            <tr>
+                                <th>Subsystem</th>
+                                <th>Component</th>
+                                <th>Classification</th>
+                                <th>Temp Rating</th>
+                                <th>Max Alt</th>
+                                <th>Paschen Safe</th>
+                                <th>Sealing</th>
+                                <th>MTBF</th>
+                                <th>Engineering Analysis & Failure Modes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="qualTableBody">
+                            <!-- Populated dynamically via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="action-btn" id="btnEvaluateBOM">EVALUATE DEPLOYMENT COMPLIANCE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Monte Carlo Pointing Verification -->
+    <div class="modal-overlay" id="monteCarloModal">
+        <div class="modal-container mc-modal">
+            <div class="modal-header">
+                <div class="modal-title">MONTE CARLO POINTING ACCURACY VERIFICATION (50 RUNS)</div>
+                <button class="modal-close-btn" id="closeMcModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="mc-stats-grid" id="mcStatsGrid">
+                    <div class="stat-box">
+                        <div class="stat-title">ADRC MEAN JITTER</div>
+                        <div class="stat-val highlight" id="mcAdrcMean">-- µrad</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-title">ADRC 95th PERCENTILE</div>
+                        <div class="stat-val success" id="mcAdrcP95">-- µrad</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-title">LEGACY PID MEAN</div>
+                        <div class="stat-val danger" id="mcPidMean">-- µrad</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-title">IMPROVEMENT FACTOR</div>
+                        <div class="stat-val success" id="mcImprovement">--x</div>
+                    </div>
+                </div>
+                <div class="mc-verdict-box" id="mcVerdict">
+                    Running stochastic Monte Carlo realization across wind turbulence and frozen cable hysteresis...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/telemetry_charts.js"></script>
+    <script src="/static/js/thermal_canvas.js"></script>
+    <script src="/static/js/three_scene.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
